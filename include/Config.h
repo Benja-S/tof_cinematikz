@@ -1,17 +1,17 @@
 #pragma once
 
 // ─── WiFi ────────────────────────────────────────────────────────────────────
-#define WIFI_SSID     "##WIFI_SSID##"
-#define WIFI_PASSWORD "##WIFI_PASSWORD##"
+#define WIFI_SSID     "WiFi motoedge"
+#define WIFI_PASSWORD "12345678"
 
 // ─── MQTT (HiveMQ Cloud free tier) ───────────────────────────────────────────
 // Sign up at https://www.hivemq.com/mqtt-cloud-broker/
 // Create a free cluster → copy the host, port 8883 (TLS) or 1883 (plain)
 // For ESP8266 without TLS overhead, use port 1883 with IP whitelisting
-#define MQTT_HOST     "##MQTTHOST##"
+#define MQTT_HOST     "d1602d6aec814d75ab189bac6e08abfc.s1.eu.hivemq.cloud"
 #define MQTT_PORT     8883
-#define MQTT_USER     "##USER##"
-#define MQTT_PASS     "##PWD##"
+#define MQTT_USER     "tofcinematikz"
+#define MQTT_PASS     "t0fM4t1kz2026"
 #define MQTT_CLIENT_ID "esp8266-derivatives"
 
 // Topics
