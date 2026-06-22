@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Derivatives Live — ESP8266</title>
+
+<!-- MQTT over WebSocket via HiveMQ's public JS client -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.4/mqtt.min.js"></script>
+<!-- Chart.js for live plotting -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
+
+<style>
+  :root {
+    --bg:       #0f1117;
+    --surface:  #1a1d27;
+    --border:   #2a2d3a;
+    --text:     #e8eaf0;
+    --muted:    #7c7f94;
+    --x-color:  #60a5fa;   /* blue  — position */
+    --v-color:  #34d399;   /* green — velocity */
+    --a-color:  #f97316;   /* amber — acceleration */
+    --annot:    #facc15;   /* yellow — annotations */
+    --card-r:   12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: .3px; }
+  #status-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #f87171; transition: background .4s;
+    display: inline-block; margin-right: 6px;
+  }
+  #status-dot.ok { background: #34d399; }
+  #status-text { font-size: 13px; color: var(--muted); }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 20px;
+    padding: 20px 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--card-r);
+    padding: 18px 20px;
+  }
+
+  .chart-wrap { position: relative; }
+  .chart-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .chart-label .dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  canvas { display: block; width: 100% !important; }
+
+  /* ── Readouts ── */
+  .readout-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .readout {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 12px 10px;
+    text-align: center;
+  }
+  .readout .label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .readout .symbol { font-size: 22px; font-weight: 700; font-family: 'Georgia', serif; }
+  .readout .value { font-size: 13px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .readout .unit  { font-size: 11px; color: var(--muted); }
+
+  /* ── Explainer panel ── */
+  .explainer { font-size: 13px; line-height: 1.7; color: var(--muted); }
+  .explainer h3 {
+    font-size: 14px; font-weight: 600;
+    color: var(--text); margin: 14px 0 6px;
+  }
+  .explainer h3:first-child { margin-top: 0; }
+  .explainer .math {
+    background: var(--bg);
+    border-left: 3px solid var(--border);
+    padding: 8px 12px;
+    border-radius: 0 6px 6px 0;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--annot);
+    margin: 6px 0;
+    white-space: pre;
+  }
+  .explainer p { margin-bottom: 8px; }
+
+  /* ── Annotation overlay ── */
+  #annotation-box {
+    position: absolute;
+    top: 10px; right: 10px;
+    background: rgba(250,204,21,.13);
+    border: 1px solid var(--annot);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--annot);
+    pointer-events: none;
+    min-width: 180px;
+    display: none;
+  }
+
+  /* ── Config inputs ── */
+  .config-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px; font-size: 13px;
+  }
+  .config-row label { color: var(--muted); }
+  .config-row input[type=range] { width: 110px; accent-color: var(--x-color); }
+  .config-row span { min-width: 50px; text-align: right; font-size: 12px; }
+
+  .tab-bar {
+    display: flex; gap: 6px; margin-bottom: 16px;
+  }
+  .tab {
+    padding: 5px 12px; border-radius: 20px;
+    font-size: 12px; cursor: pointer;
+    border: 1px solid var(--border);
+    color: var(--muted); background: transparent;
+    transition: all .2s;
+  }
+  .tab.active { color: var(--text); border-color: var(--text); background: var(--border); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📐 Derivatives Live</h1>
+  <div>
+    <span id="status-dot"></span>
+    <span id="status-text">Connecting…</span>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- ── Left column: charts ── -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+
+    <!-- Position chart -->
+    <div class="card chart-wrap">
+      <div class="chart-label">
+        <span class="dot" style="background:var(--x-color)"></span>
+        Position x(t) — distance to object (mm)
+      </div>
+      <canvas id="chart-x" height="130"></canvas>
+      <div id="annotation-box" id="annot-x"></div>
+    </div>
+
+    <!-- Velocity chart -->
+    <div class="card chart-wrap">
+      <div class="chart-label">
+        <span class="dot" style="background:var(--v-color)"></span>
+        Velocity v(t) = dx/dt — rate of change of position (mm/s)
+      </div>
+      <canvas id="chart-v" height="130"></canvas>
+    </div>
+
+    <!-- Acceleration chart -->
+    <div class="card chart-wrap">
+      <div class="chart-label">
+        <span class="dot" style="background:var(--a-color)"></span>
+        Acceleration a(t) = dv/dt = d²x/dt² — rate of change of velocity (mm/s²)
+      </div>
+      <canvas id="chart-a" height="130"></canvas>
+    </div>
+
+    <!-- Live readouts -->
+    <div class="readout-grid">
+      <div class="readout">
+        <div class="label">Position</div>
+        <div class="symbol" style="color:var(--x-color)">x</div>
+        <div class="value" id="val-x">—</div>
+        <div class="unit">mm</div>
+      </div>
+      <div class="readout">
+        <div class="label">Velocity</div>
+        <div class="symbol" style="color:var(--v-color)">v</div>
+        <div class="value" id="val-v">—</div>
+        <div class="unit">mm/s</div>
+      </div>
+      <div class="readout">
+        <div class="label">Acceleration</div>
+        <div class="symbol" style="color:var(--a-color)">a</div>
+        <div class="value" id="val-a">—</div>
+        <div class="unit">mm/s²</div>
+      </div>
+    </div>
+
+    <!-- Slope annotation panel -->
+    <div class="card" id="slope-card" style="font-size:13px;display:none;">
+      <strong style="color:var(--annot)">📌 What you're seeing right now</strong>
+      <div id="slope-text" style="margin-top:8px;color:var(--muted);line-height:1.7;"></div>
+    </div>
+
+  </div>
+
+  <!-- ── Right column: explainer + config ── -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+
+    <div class="card">
+      <div class="tab-bar">
+        <button class="tab active" onclick="showTab('concept')">Concept</button>
+        <button class="tab" onclick="showTab('formula')">Formula</button>
+        <button class="tab" onclick="showTab('config')">Settings</button>
+      </div>
+
+      <div id="tab-concept" class="explainer">
+        <h3>What is a derivative?</h3>
+        <p>A derivative measures how fast something is <em>changing</em>. If x(t) is where an object is, then:</p>
+        <div class="math">v = dx/dt = lim[Δt→0] Δx/Δt</div>
+        <p>…is how fast the position is changing — the <strong>velocity</strong>.</p>
+        <h3>And the second derivative?</h3>
+        <p>Apply the same idea to velocity:</p>
+        <div class="math">a = dv/dt = d²x/dt²</div>
+        <p>…is how fast the <em>velocity</em> is changing — the <strong>acceleration</strong>.</p>
+        <h3>What to notice in the charts</h3>
+        <p>→ When the <span style="color:var(--x-color)">position</span> curve peaks or dips, the <span style="color:var(--v-color)">velocity</span> crosses zero.</p>
+        <p>→ When velocity is at its peak, <span style="color:var(--a-color)">acceleration</span> is zero.</p>
+        <p>→ The steeper the position slope, the larger the velocity.</p>
+      </div>
+
+      <div id="tab-formula" class="explainer" style="display:none;">
+        <h3>How the ESP calculates this</h3>
+        <p>We use a <strong>central difference</strong> approximation — more accurate than a forward difference because the errors cancel out:</p>
+        <div class="math">v(t) ≈ [x(t+Δt) − x(t−Δt)]
+         ─────────────────────
+               2 · Δt</div>
+        <div class="math">a(t) ≈ [x(t+Δt) − 2x(t) + x(t−Δt)]
+         ─────────────────────────────────
+                     Δt²</div>
+        <h3>Error analysis</h3>
+        <p>The central difference has error <em>O(Δt²)</em>. With Δt = 50ms, the truncation error is ~2.5ms² order — small but visible as slight noise on the acceleration curve.</p>
+        <h3>Why is acceleration noisier?</h3>
+        <p>Each differentiation <em>amplifies</em> noise. Even a 1mm measurement error becomes ~400 mm/s² error after two differentiations at Δt=50ms. This is why real systems use filters (Kalman, low-pass) after differentiating.</p>
+      </div>
+
+      <div id="tab-config" style="display:none;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
+          Adjust simulation parameters. Changes apply immediately.
+        </div>
+        <div class="config-row">
+          <label>Window (points)</label>
+          <input type="range" id="cfg-window" min="20" max="150" value="80"
+                 oninput="updateWindow(this.value)">
+          <span id="cfg-window-val">80</span>
+        </div>
+        <div class="config-row">
+          <label>Pause</label>
+          <input type="checkbox" id="cfg-pause" onchange="togglePause(this.checked)"
+                 style="accent-color:var(--x-color)">
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:16px;">
+          MQTT broker: <span id="broker-info" style="color:var(--text)"></span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);">
+          Topic: <code style="color:var(--annot)">derivatives/motion</code>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase relationship card -->
+    <div class="card">
+      <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:10px;">
+        Phase relationships
+      </div>
+      <canvas id="chart-phase" height="180"></canvas>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5;">
+        For sinusoidal motion, v leads x by 90°, and a is opposite to x.
+        Watch the loops form — this is the <em>phase portrait</em>.
+      </div>
+    </div>
+
+    <!-- dt readout -->
+    <div class="card" style="font-size:12px;color:var(--muted);">
+      <div style="margin-bottom:6px;font-weight:600;color:var(--text);">Sampling info</div>
+      Δt (actual): <span id="val-dt" style="color:var(--text);">—</span> ms<br>
+      Samples received: <span id="val-count" style="color:var(--text);">0</span><br>
+      Last update: <span id="val-last" style="color:var(--text);">—</span>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── Configuration ─────────────────────────────────────────────────────────────
+const BROKER_URL = 'wss://broker.hivemq.com:8884/mqtt';  // HiveMQ public broker for testing
+// Replace with: 'wss://YOUR_CLUSTER.s2.eu.hivemq.cloud:8884/mqtt' for your private cluster
+const TOPIC      = 'derivatives/motion';
+const MAX_POINTS = 80;
+
+document.getElementById('broker-info').textContent = BROKER_URL;
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let paused  = false;
+let count   = 0;
+let windowN = MAX_POINTS;
+const data  = { t: [], x: [], v: [], a: [] };
+
+// ── Chart setup helpers ────────────────────────────────────────────────────────
+const gridColor  = 'rgba(255,255,255,0.05)';
+const zeroColor  = 'rgba(255,255,255,0.12)';
+const annotColor = '#facc15';
+
+function makeChart(id, color, yLabel, yMin, yMax) {
+  const ctx = document.getElementById(id).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        data: [], borderColor: color, borderWidth: 2,
+        pointRadius: 0, tension: 0.3, fill: false,
+      }]
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        annotation: {},
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.parsed.y.toFixed(1)} ${yLabel}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#7c7f94', font: { size: 10 }, maxTicksLimit: 8 },
+          grid:  { color: gridColor },
+        },
+        y: {
+          ticks: { color: '#7c7f94', font: { size: 10 } },
+          grid:  { color: gridColor },
+          title: { display: false },
+          ...(yMin != null ? { min: yMin, max: yMax } : {}),
+        }
+      }
+    }
+  });
+}
+
+const chartX = makeChart('chart-x', '#60a5fa', 'mm');
+const chartV = makeChart('chart-v', '#34d399', 'mm/s');
+const chartA = makeChart('chart-a', '#f97316', 'mm/s²');
+
+// Phase portrait (x vs v scatter)
+const phaseCtx = document.getElementById('chart-phase').getContext('2d');
+const chartPhase = new Chart(phaseCtx, {
+  type: 'scatter',
+  data: {
+    datasets: [{
+      data: [], borderColor: '#a78bfa',
+      backgroundColor: 'rgba(167,139,250,0.6)',
+      pointRadius: 2, showLine: true,
+      tension: 0.3, borderWidth: 1.5,
+      fill: false,
+    }]
+  },
+  options: {
+    animation: false, responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: {
+        title: { display: true, text: 'x (mm)', color: '#60a5fa', font: { size: 11 } },
+        ticks: { color: '#7c7f94', font: { size: 10 } },
+        grid:  { color: gridColor },
+      },
+      y: {
+        title: { display: true, text: 'v (mm/s)', color: '#34d399', font: { size: 11 } },
+        ticks: { color: '#7c7f94', font: { size: 10 } },
+        grid:  { color: gridColor },
+      }
+    }
+  }
+});
+
+// ── Update functions ───────────────────────────────────────────────────────────
+function pushData(msg) {
+  if (paused) return;
+
+  const ts = (msg.t / 1000).toFixed(2) + 's';
+  data.t.push(ts);
+  data.x.push(msg.x);
+  data.v.push(msg.v);
+  data.a.push(msg.a);
+
+  const W = windowN;
+  if (data.t.length > W) {
+    data.t.shift(); data.x.shift(); data.v.shift(); data.a.shift();
+  }
+
+  // Update line charts
+  [chartX, chartV, chartA].forEach((ch, i) => {
+    ch.data.labels   = data.t;
+    ch.data.datasets[0].data = [data.x, data.v, data.a][i];
+    ch.update('none');
+  });
+
+  // Phase portrait — last 60 points
+  const N = Math.min(data.x.length, 60);
+  chartPhase.data.datasets[0].data = data.x.slice(-N).map((xi, i) => ({
+    x: xi, y: data.v[data.v.length - N + i]
+  }));
+  chartPhase.update('none');
+
+  // Readouts
+  document.getElementById('val-x').textContent = msg.x.toFixed(1);
+  document.getElementById('val-v').textContent = msg.v.toFixed(1);
+  document.getElementById('val-a').textContent = msg.a.toFixed(1);
+  document.getElementById('val-dt').textContent = msg.dt.toFixed(1);
+  document.getElementById('val-count').textContent = ++count;
+  document.getElementById('val-last').textContent = new Date().toLocaleTimeString();
+
+  // ── Pedagogical annotation ────────────────────────────────────────────────
+  updateAnnotation(msg);
+}
+
+function updateAnnotation(msg) {
+  const slopeCard = document.getElementById('slope-card');
+  const slopeText = document.getElementById('slope-text');
+
+  const absV  = Math.abs(msg.v);
+  const absA  = Math.abs(msg.a);
+  const lines = [];
+
+  if (absV < 15) {
+    lines.push(`<strong style="color:var(--annot)">Velocity ≈ 0</strong> — the object is momentarily stationary. On the position chart, this is where the curve reaches a <em>local maximum or minimum</em> (flat tangent).`);
+  } else if (absV > 200) {
+    lines.push(`<strong style="color:var(--v-color)">High velocity (${msg.v.toFixed(0)} mm/s)</strong> — the position curve is steep here. The derivative (slope of the tangent line) is large.`);
+  }
+
+  if (absA < 20) {
+    lines.push(`<strong style="color:var(--annot)">Acceleration ≈ 0</strong> — velocity is at a peak or trough. The velocity curve has a flat tangent here.`);
+  } else if (absA > 300) {
+    const dir = msg.a > 0 ? 'speeding up (away)' : 'slowing down or reversing';
+    lines.push(`<strong style="color:var(--a-color)">Large acceleration (${msg.a.toFixed(0)} mm/s²)</strong> — the object is ${dir}. The velocity is changing quickly.`);
+  }
+
+  if (msg.v > 0 && msg.a < -50)  lines.push(`Object moving away but <em>decelerating</em> — velocity and acceleration have <em>opposite signs</em>.`);
+  if (msg.v < 0 && msg.a > 50)   lines.push(`Object approaching but <em>decelerating</em> — velocity and acceleration have <em>opposite signs</em>.`);
+  if (msg.v > 0 && msg.a > 50)   lines.push(`Object moving away and <em>accelerating</em> — velocity and acceleration have the <em>same sign</em>.`);
+  if (msg.v < 0 && msg.a < -50)  lines.push(`Object approaching and <em>accelerating</em> — velocity and acceleration have the <em>same sign</em>.`);
+
+  if (lines.length > 0) {
+    slopeText.innerHTML = lines.join('<br><br>');
+    slopeCard.style.display = 'block';
+  } else {
+    slopeCard.style.display = 'none';
+  }
+}
+
+// ── MQTT connection ───────────────────────────────────────────────────────────
+const dot  = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+
+function setStatus(ok, text) {
+  dot.className = ok ? 'ok' : '';
+  statusText.textContent = text;
+}
+
+const client = mqtt.connect(BROKER_URL, {
+  clientId: 'web-' + Math.random().toString(36).slice(2, 8),
+  clean: true,
+  reconnectPeriod: 3000,
+});
+
+client.on('connect', () => {
+  setStatus(true, 'Connected — waiting for data…');
+  client.subscribe(TOPIC, err => {
+    if (err) setStatus(false, 'Subscribe failed');
+  });
+});
+
+client.on('message', (topic, payload) => {
+  try {
+    const msg = JSON.parse(payload.toString());
+    pushData(msg);
+    setStatus(true, 'Live ✓');
+  } catch(e) {
+    console.warn('Bad payload', e);
+  }
+});
+
+client.on('error',      e  => setStatus(false, 'Error: ' + e.message));
+client.on('close',      () => setStatus(false, 'Disconnected — retrying…'));
+client.on('reconnect',  () => setStatus(false, 'Reconnecting…'));
+
+// ── UI controls ───────────────────────────────────────────────────────────────
+function showTab(name) {
+  ['concept','formula','config'].forEach(t => {
+    document.getElementById('tab-'+t).style.display = t === name ? 'block' : 'none';
+  });
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    el.classList.toggle('active', ['concept','formula','config'][i] === name);
+  });
+}
+
+function updateWindow(v) {
+  windowN = parseInt(v);
+  document.getElementById('cfg-window-val').textContent = v;
+}
+
+function togglePause(v) { paused = v; }
+</script>
+</body>
+</html>
