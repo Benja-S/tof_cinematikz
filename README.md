@@ -93,7 +93,7 @@ Switching from simulated to real sensor is one line in `platformio.ini`.
 
 ## Live demo
 
-🌐 **[YOUR_USERNAME.github.io/tof-cinematikz](https://your_username.github.io/tof-cinematikz)**
+🌐 **[benja-s.github.io/tof-cinematikz](https://benja-s.github.io/tof_cinematikz)**
 
 *(Requires an ESP running the firmware to see live data)*
 
