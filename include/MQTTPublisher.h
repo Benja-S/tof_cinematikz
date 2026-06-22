@@ -6,20 +6,13 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 
-/**
- * MQTTPublisher
- * -------------
- * Serialises a MotionState to JSON and publishes it to the MQTT broker.
- * Uses TLS (port 8883). Works with both authenticated brokers (HiveMQ Cloud)
- * and anonymous brokers (broker.hivemq.com public).
- */
 class MQTTPublisher {
 public:
     MQTTPublisher() : _mqtt(_wifiClient) {}
 
     void begin() {
-        _wifiClient.setInsecure();      // encrypt but skip cert verification
-        _wifiClient.setTimeout(15000);  // 15s for TLS handshake
+        _wifiClient.setInsecure();
+        _wifiClient.setTimeout(15000);
         _mqtt.setServer(MQTT_HOST, MQTT_PORT);
         _mqtt.setBufferSize(512);
         _mqtt.setSocketTimeout(15);
@@ -49,7 +42,7 @@ public:
     bool connected() { return _mqtt.connected(); }
 
 private:
-    WiFiClientSecure _wifiClient;
+    WiFiClientSecure _wifiClient;   // <-- this is the key change
     PubSubClient     _mqtt;
     uint32_t         _last_attempt_ms = 0;
 
@@ -61,11 +54,7 @@ private:
         Serial.print(MQTT_HOST);
         Serial.print("...");
 
-        // Use anonymous connect if credentials are empty
-        bool ok = (strlen(MQTT_USER) > 0)
-            ? _mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)
-            : _mqtt.connect(MQTT_CLIENT_ID);
-
+        bool ok = _mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS);
         if (ok) {
             Serial.println(" connected!");
         } else {
