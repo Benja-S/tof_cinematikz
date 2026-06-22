@@ -322,7 +322,7 @@
 
 <script>
 // ── Configuration ─────────────────────────────────────────────────────────────
-const BROKER_URL = 'wss://d1602d6aec814d75ab189bac6e08abfc.s1.eu.hivemq.cloud:8884/mqtt';  // HiveMQ public broker for testing
+const BROKER_URL = 'wss://d1602d6aec814d75ab189bac6e08abfc.s1.eu.hivemq.cloud:8884/mqtt';  
 const TOPIC      = 'derivatives/motion';
 const MAX_POINTS = 80;
 
@@ -500,6 +500,8 @@ function setStatus(ok, text) {
 
 const client = mqtt.connect(BROKER_URL, {
   clientId: 'web-' + Math.random().toString(36).slice(2, 8),
+  username: 'tofcinematikz',
+  password: 't0fM4t1kz2026',
   clean: true,
   reconnectPeriod: 3000,
 });
