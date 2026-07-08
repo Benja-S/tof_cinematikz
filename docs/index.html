@@ -105,14 +105,24 @@
             flex-shrink: 0;
         }
 
+        .status-dot.connecting {
+            background: #fbbf24;
+            animation: pulse 1s infinite;
+        }
+
         .status-dot.connected {
             background: #34d399;
             box-shadow: 0 0 12px rgba(52, 211, 153, 0.3);
         }
 
         .status-dot.recording {
+            background: #34d399;
+            animation: pulse 1.5s infinite;
+        }
+
+        .status-dot.waiting {
             background: #fbbf24;
-            animation: pulse 1s infinite;
+            animation: pulse 2s infinite;
         }
 
         @keyframes pulse {
@@ -130,6 +140,10 @@
         .data-count {
             font-variant-numeric: tabular-nums;
             color: var(--text);
+        }
+
+        .data-count.waiting-data {
+            color: var(--muted);
         }
 
         .mode-tag {
@@ -268,6 +282,11 @@
             font-size: 20px;
             font-weight: 600;
             font-variant-numeric: tabular-nums;
+        }
+
+        .readout-item .value.waiting {
+            color: var(--muted) !important;
+            font-weight: 300;
         }
 
         .readout-item .unit {
@@ -448,6 +467,52 @@
             border-radius: 2px;
         }
 
+        .no-data-overlay {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(10, 11, 15, 0.85);
+            color: var(--muted);
+            font-size: 13px;
+            border-radius: 8px;
+            pointer-events: none;
+            z-index: 5;
+            backdrop-filter: blur(2px);
+            transition: opacity 0.5s;
+        }
+
+        .no-data-overlay.hidden {
+            opacity: 0;
+        }
+
+        .no-data-overlay .content {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .no-data-overlay .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
         @media (max-width: 600px) {
             header {
                 flex-direction: column;
@@ -481,11 +546,11 @@
         </div>
         <div class="header-right">
             <div class="status-badge">
-                <span class="status-dot" id="statusDot"></span>
+                <span class="status-dot connecting" id="statusDot"></span>
                 <span id="statusText">Conectando a MQTT…</span>
             </div>
             <span>|</span>
-            <span>Muestras: <span class="data-count" id="sampleCount">0</span></span>
+            <span>Muestras: <span class="data-count waiting-data" id="sampleCount">0</span></span>
             <span class="data-count" id="lastUpdate" style="font-size:12px;color:var(--muted);">—</span>
         </div>
     </header>
@@ -497,7 +562,7 @@
         <div style="display:flex;flex-direction:column;gap:20px;">
 
             <!-- Combined Chart: All three plots -->
-            <div class="card chart-wrap">
+            <div class="card chart-wrap" id="combinedWrap">
                 <div class="chart-header">
                     <div>
                         <div class="chart-title">
@@ -515,6 +580,13 @@
                     </div>
                 </div>
                 <canvas id="chartCombined" height="160"></canvas>
+                <div class="no-data-overlay" id="overlayCombined">
+                    <div class="content">
+                        <div class="spinner"></div>
+                        <span>Esperando datos del sensor…</span>
+                        <span style="font-size:11px;color:var(--muted);">Conectado a MQTT, esperando publicaciones</span>
+                    </div>
+                </div>
                 <div class="legend-row">
                     <span class="item"><span class="swatch" style="background:var(--position-color);"></span> Posición <span class="formula">x</span> (mm)</span>
                     <span class="item"><span class="swatch" style="background:var(--velocity-color);"></span> Velocidad <span class="formula">v</span> (mm/s)</span>
@@ -528,7 +600,7 @@
             </div>
 
             <!-- Position Chart (individual) -->
-            <div class="card chart-wrap">
+            <div class="card chart-wrap" id="positionWrap">
                 <div class="chart-header">
                     <div>
                         <div class="chart-title">
@@ -542,6 +614,12 @@
                     </div>
                 </div>
                 <canvas id="chartPosition" height="110"></canvas>
+                <div class="no-data-overlay" id="overlayPosition">
+                    <div class="content">
+                        <div class="spinner"></div>
+                        <span>Esperando datos…</span>
+                    </div>
+                </div>
                 <div class="annotation-box" id="tangentAnnotation">
                     <div class="label">Pendiente de la tangente</div>
                     <div class="slope-value" id="tangentSlopeValue">—</div>
@@ -550,7 +628,7 @@
             </div>
 
             <!-- Velocity Chart -->
-            <div class="card chart-wrap">
+            <div class="card chart-wrap" id="velocityWrap">
                 <div class="chart-header">
                     <div>
                         <div class="chart-title">
@@ -564,10 +642,16 @@
                     </div>
                 </div>
                 <canvas id="chartVelocity" height="90"></canvas>
+                <div class="no-data-overlay" id="overlayVelocity">
+                    <div class="content">
+                        <div class="spinner"></div>
+                        <span>Esperando datos…</span>
+                    </div>
+                </div>
             </div>
 
             <!-- Acceleration Chart -->
-            <div class="card chart-wrap">
+            <div class="card chart-wrap" id="accelerationWrap">
                 <div class="chart-header">
                     <div>
                         <div class="chart-title">
@@ -581,6 +665,12 @@
                     </div>
                 </div>
                 <canvas id="chartAcceleration" height="90"></canvas>
+                <div class="no-data-overlay" id="overlayAcceleration">
+                    <div class="content">
+                        <div class="spinner"></div>
+                        <span>Esperando datos…</span>
+                    </div>
+                </div>
             </div>
 
             <!-- Live Readouts -->
@@ -588,19 +678,19 @@
                 <div class="readout-item">
                     <div class="label">Posición</div>
                     <div class="symbol" style="color:var(--position-color);">x</div>
-                    <div class="value" id="readoutX" style="color:var(--position-color);">—</div>
+                    <div class="value waiting" id="readoutX" style="color:var(--position-color);">—</div>
                     <div class="unit">mm</div>
                 </div>
                 <div class="readout-item">
                     <div class="label">Velocidad</div>
                     <div class="symbol" style="color:var(--velocity-color);">v</div>
-                    <div class="value" id="readoutV" style="color:var(--velocity-color);">—</div>
+                    <div class="value waiting" id="readoutV" style="color:var(--velocity-color);">—</div>
                     <div class="unit">mm/s</div>
                 </div>
                 <div class="readout-item">
                     <div class="label">Aceleración</div>
                     <div class="symbol" style="color:var(--acceleration-color);">a</div>
-                    <div class="value" id="readoutA" style="color:var(--acceleration-color);">—</div>
+                    <div class="value waiting" id="readoutA" style="color:var(--acceleration-color);">—</div>
                     <div class="unit">mm/s²</div>
                 </div>
             </div>
@@ -720,6 +810,7 @@
         let showTangent = true;
         let tangentIndex = -1;
         let mqttClient = null;
+        let hasReceivedData = false;
 
         const data = {
             t: [],
@@ -740,7 +831,7 @@
             return {
                 id: 'tangentLine',
                 afterDraw(chart) {
-                    if (!showTangent || tangentIndex < 0 || tangentIndex >= getData().x.length) return;
+                    if (!showTangent || tangentIndex < 0 || tangentIndex >= getData().x.length || !hasReceivedData) return;
 
                     const ctx = chart.ctx;
                     const xScale = chart.scales.x;
@@ -1060,13 +1151,29 @@
             }
         });
 
+        // ── Overlay management ──
+        const overlays = {
+            combined: document.getElementById('overlayCombined'),
+            position: document.getElementById('overlayPosition'),
+            velocity: document.getElementById('overlayVelocity'),
+            acceleration: document.getElementById('overlayAcceleration'),
+        };
+
+        function hideOverlays() {
+            Object.values(overlays).forEach(el => el.classList.add('hidden'));
+        }
+
+        function showOverlays() {
+            Object.values(overlays).forEach(el => el.classList.remove('hidden'));
+        }
+
         // ═══════════════════════════════════════════════════════════════
         //  TANGENT INTERACTION (shared across charts)
         // ═══════════════════════════════════════════════════════════════
 
         function updateTangent(index) {
             tangentIndex = index;
-            if (index < 0 || index >= data.x.length || !showTangent) {
+            if (index < 0 || index >= data.x.length || !showTangent || !hasReceivedData) {
                 document.getElementById('tangentAnnotation').style.display = 'none';
                 document.getElementById('tangentAnnotationCombined').style.display = 'none';
             }
@@ -1075,7 +1182,7 @@
         }
 
         function handleChartHover(e) {
-            if (!showTangent || data.x.length === 0) {
+            if (!showTangent || data.x.length === 0 || !hasReceivedData) {
                 updateTangent(-1);
                 return;
             }
@@ -1121,6 +1228,17 @@
         function pushData(msg) {
             if (paused) return;
 
+            // Mark that we've received data
+            if (!hasReceivedData) {
+                hasReceivedData = true;
+                hideOverlays();
+                document.getElementById('modeTag').textContent = '📡 EN VIVO';
+                document.getElementById('modeTag').className = 'mode-tag live';
+                document.getElementById('statusDot').className = 'status-dot recording';
+                document.getElementById('statusText').textContent = 'Recibiendo datos ✓';
+                document.getElementById('sampleCount').className = 'data-count';
+            }
+
             const ts = (msg.t / 1000).toFixed(2) + 's';
             data.t.push(ts);
             data.x.push(msg.x);
@@ -1165,10 +1283,13 @@
             }));
             chartPhase.update('none');
 
-            // Update readouts
+            // Update readouts - remove waiting class
             document.getElementById('readoutX').textContent = msg.x.toFixed(1);
+            document.getElementById('readoutX').className = 'value';
             document.getElementById('readoutV').textContent = msg.v.toFixed(1);
+            document.getElementById('readoutV').className = 'value';
             document.getElementById('readoutA').textContent = msg.a.toFixed(1);
+            document.getElementById('readoutA').className = 'value';
 
             // Update sample count
             sampleCount++;
@@ -1177,10 +1298,8 @@
 
             // Update status
             const dot = document.getElementById('statusDot');
-            dot.className = 'status-dot connected';
-            document.getElementById('statusText').textContent = 'En vivo ✓';
-            document.getElementById('modeTag').textContent = '📡 EN VIVO';
-            document.getElementById('modeTag').className = 'mode-tag live';
+            dot.className = 'status-dot recording';
+            document.getElementById('statusText').textContent = 'Recibiendo datos ✓';
 
             // Hide error if shown
             document.getElementById('connectionError').style.display = 'none';
@@ -1200,6 +1319,7 @@
             document.getElementById('statusText').textContent = 'Error';
             document.getElementById('modeTag').textContent = '❌ ERROR';
             document.getElementById('modeTag').className = 'mode-tag error';
+            showOverlays();
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -1210,10 +1330,11 @@
             const dot = document.getElementById('statusDot');
             const statusText = document.getElementById('statusText');
 
-            dot.className = 'status-dot';
+            dot.className = 'status-dot connecting';
             statusText.textContent = 'Conectando a MQTT…';
             document.getElementById('modeTag').textContent = '⏳ conectando...';
             document.getElementById('modeTag').className = 'mode-tag waiting';
+            showOverlays();
 
             console.log('🔗 Conectando a MQTT broker:', BROKER_URL);
 
@@ -1227,18 +1348,18 @@
 
             mqttClient.on('connect', () => {
                 console.log('✅ MQTT Conectado');
-                dot.className = 'status-dot';
-                statusText.textContent = 'Suscribiendo…';
+                dot.className = 'status-dot waiting';
+                statusText.textContent = 'Conectado, esperando datos…';
+                document.getElementById('modeTag').textContent = '⏳ esperando datos';
+                document.getElementById('modeTag').className = 'mode-tag waiting';
                 mqttClient.subscribe(TOPIC, (err) => {
                     if (err) {
                         console.error('❌ Error al suscribir:', err);
                         showError('Error al suscribir: ' + err.message);
                     } else {
                         console.log('📡 Suscrito a', TOPIC);
-                        dot.className = 'status-dot recording';
-                        statusText.textContent = 'Esperando datos…';
-                        document.getElementById('modeTag').textContent = '📡 EN VIVO';
-                        document.getElementById('modeTag').className = 'mode-tag live';
+                        // Don't change to "live" yet - wait for actual data
+                        statusText.textContent = 'Suscrito, esperando datos…';
                     }
                 });
             });
@@ -1269,15 +1390,17 @@
                     statusText.textContent = 'Desconectado — reconectando…';
                     document.getElementById('modeTag').textContent = '⏳ reconectando...';
                     document.getElementById('modeTag').className = 'mode-tag waiting';
+                    showOverlays();
                 }
             });
 
             mqttClient.on('reconnect', () => {
                 console.log('🔄 Reconectando MQTT…');
-                dot.className = 'status-dot';
+                dot.className = 'status-dot connecting';
                 statusText.textContent = 'Reconectando…';
                 document.getElementById('modeTag').textContent = '⏳ reconectando...';
                 document.getElementById('modeTag').className = 'mode-tag waiting';
+                showOverlays();
             });
         }
 
@@ -1299,9 +1422,12 @@
             if (paused) {
                 dot.className = 'status-dot';
                 document.getElementById('statusText').textContent = '⏸ Pausado';
-            } else {
+            } else if (hasReceivedData) {
                 dot.className = 'status-dot recording';
-                document.getElementById('statusText').textContent = 'En vivo ✓';
+                document.getElementById('statusText').textContent = 'Recibiendo datos ✓';
+            } else {
+                dot.className = 'status-dot waiting';
+                document.getElementById('statusText').textContent = 'Esperando datos…';
             }
         });
 
@@ -1312,7 +1438,7 @@
                 tangentIndex = -1;
                 document.getElementById('tangentAnnotation').style.display = 'none';
                 document.getElementById('tangentAnnotationCombined').style.display = 'none';
-            } else if (tangentIndex >= 0 && tangentIndex < data.x.length) {
+            } else if (tangentIndex >= 0 && tangentIndex < data.x.length && hasReceivedData) {
                 updateTangent(tangentIndex);
             }
             chartPosition.update('none');
