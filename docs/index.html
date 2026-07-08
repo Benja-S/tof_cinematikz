@@ -1,548 +1,1332 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Derivatives Live — ESP8266</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Laboratorio de Cálculo — Derivadas desde Datos de Sensores</title>
 
-<!-- MQTT over WebSocket via HiveMQ's public JS client -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.4/mqtt.min.js"></script>
-<!-- Chart.js for live plotting -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- MQTT over WebSocket -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.4/mqtt.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<style>
-  :root {
-    --bg:       #0f1117;
-    --surface:  #1a1d27;
-    --border:   #2a2d3a;
-    --text:     #e8eaf0;
-    --muted:    #7c7f94;
-    --x-color:  #60a5fa;   /* blue  — position */
-    --v-color:  #34d399;   /* green — velocity */
-    --a-color:  #f97316;   /* amber — acceleration */
-    --annot:    #facc15;   /* yellow — annotations */
-    --card-r:   12px;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+    <style>
+        :root {
+            --bg: #0a0b0f;
+            --surface: #14161e;
+            --border: #252a3a;
+            --text: #eaeef2;
+            --muted: #6a7090;
+            --accent: #ffd93d;
+            --position-color: #6bcbff;
+            --velocity-color: #ff6b6b;
+            --acceleration-color: #51cf66;
+            --card-r: 16px;
+        }
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    font-size: 15px;
-    line-height: 1.6;
-  }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 24px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-  }
-  header h1 { font-size: 18px; font-weight: 600; letter-spacing: .3px; }
-  #status-dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: #f87171; transition: background .4s;
-    display: inline-block; margin-right: 6px;
-  }
-  #status-dot.ok { background: #34d399; }
-  #status-text { font-size: 13px; color: var(--muted); }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
+            padding: 16px;
+        }
 
-  .layout {
-    display: grid;
-    grid-template-columns: 1fr 320px;
-    gap: 20px;
-    padding: 20px 24px;
-    max-width: 1400px;
-    margin: 0 auto;
-  }
-  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 28px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--card-r);
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
 
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--card-r);
-    padding: 18px 20px;
-  }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
 
-  .chart-wrap { position: relative; }
-  .chart-label {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: .8px;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 6px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .chart-label .dot {
-    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
-  }
+        .header-left h1 {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
 
-  canvas { display: block; width: 100% !important; }
+        .header-left h1 .math {
+            color: var(--accent);
+            font-family: 'Times New Roman', serif;
+            font-style: italic;
+        }
 
-  /* ── Readouts ── */
-  .readout-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 12px;
-    margin: 16px 0;
-  }
-  .readout {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 12px 10px;
-    text-align: center;
-  }
-  .readout .label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
-  .readout .symbol { font-size: 22px; font-weight: 700; font-family: 'Georgia', serif; }
-  .readout .value { font-size: 13px; margin-top: 4px; font-variant-numeric: tabular-nums; }
-  .readout .unit  { font-size: 11px; color: var(--muted); }
+        .header-sub {
+            font-size: 13px;
+            color: var(--muted);
+            font-weight: 400;
+        }
 
-  /* ── Explainer panel ── */
-  .explainer { font-size: 13px; line-height: 1.7; color: var(--muted); }
-  .explainer h3 {
-    font-size: 14px; font-weight: 600;
-    color: var(--text); margin: 14px 0 6px;
-  }
-  .explainer h3:first-child { margin-top: 0; }
-  .explainer .math {
-    background: var(--bg);
-    border-left: 3px solid var(--border);
-    padding: 8px 12px;
-    border-radius: 0 6px 6px 0;
-    font-family: 'Courier New', monospace;
-    font-size: 12px;
-    color: var(--annot);
-    margin: 6px 0;
-    white-space: pre;
-  }
-  .explainer p { margin-bottom: 8px; }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 13px;
+            color: var(--muted);
+            flex-wrap: wrap;
+        }
 
-  /* ── Annotation overlay ── */
-  #annotation-box {
-    position: absolute;
-    top: 10px; right: 10px;
-    background: rgba(250,204,21,.13);
-    border: 1px solid var(--annot);
-    border-radius: 8px;
-    padding: 8px 12px;
-    font-size: 12px;
-    color: var(--annot);
-    pointer-events: none;
-    min-width: 180px;
-    display: none;
-  }
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 100px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+        }
 
-  /* ── Config inputs ── */
-  .config-row {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 10px; font-size: 13px;
-  }
-  .config-row label { color: var(--muted); }
-  .config-row input[type=range] { width: 110px; accent-color: var(--x-color); }
-  .config-row span { min-width: 50px; text-align: right; font-size: 12px; }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #f87171;
+            transition: background 0.3s;
+            flex-shrink: 0;
+        }
 
-  .tab-bar {
-    display: flex; gap: 6px; margin-bottom: 16px;
-  }
-  .tab {
-    padding: 5px 12px; border-radius: 20px;
-    font-size: 12px; cursor: pointer;
-    border: 1px solid var(--border);
-    color: var(--muted); background: transparent;
-    transition: all .2s;
-  }
-  .tab.active { color: var(--text); border-color: var(--text); background: var(--border); }
-</style>
+        .status-dot.connected {
+            background: #34d399;
+            box-shadow: 0 0 12px rgba(52, 211, 153, 0.3);
+        }
+
+        .status-dot.recording {
+            background: #fbbf24;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.6;
+                transform: scale(0.9);
+            }
+        }
+
+        .data-count {
+            font-variant-numeric: tabular-nums;
+            color: var(--text);
+        }
+
+        .mode-tag {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 3px 10px;
+            border-radius: 100px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--muted);
+        }
+
+        .mode-tag.live {
+            border-color: #34d399;
+            color: #34d399;
+        }
+
+        .mode-tag.waiting {
+            border-color: #fbbf24;
+            color: #fbbf24;
+        }
+
+        .mode-tag.error {
+            border-color: #f87171;
+            color: #f87171;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            gap: 24px;
+            max-width: 1500px;
+            margin: 0 auto;
+        }
+
+        @media (max-width: 1000px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--card-r);
+            padding: 20px 24px;
+        }
+
+        .chart-wrap {
+            position: relative;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+
+        .chart-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .chart-title .color-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .chart-title .formula {
+            font-family: 'Times New Roman', serif;
+            font-style: italic;
+            color: var(--muted);
+            font-weight: 400;
+            font-size: 12px;
+        }
+
+        .chart-subtitle {
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 2px;
+            padding-left: 20px;
+        }
+
+        .chart-subtitle .highlight {
+            color: var(--accent);
+        }
+
+        canvas {
+            display: block;
+            width: 100% !important;
+            border-radius: 8px;
+            cursor: crosshair;
+        }
+
+        .readouts {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .readout-item {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 16px 12px;
+            text-align: center;
+        }
+
+        .readout-item .label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .readout-item .symbol {
+            font-family: 'Times New Roman', serif;
+            font-style: italic;
+            font-size: 24px;
+            font-weight: 700;
+            margin: 2px 0;
+        }
+
+        .readout-item .value {
+            font-size: 20px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .readout-item .unit {
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .math-lab h3 {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            margin: 16px 0 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .math-lab h3:first-child {
+            margin-top: 0;
+        }
+
+        .math-lab p {
+            font-size: 13px;
+            color: var(--muted);
+            line-height: 1.7;
+            margin-bottom: 8px;
+        }
+
+        .math-lab .formula-box {
+            background: var(--bg);
+            border-left: 3px solid var(--accent);
+            padding: 10px 14px;
+            border-radius: 0 8px 8px 0;
+            font-family: 'Times New Roman', serif;
+            font-size: 15px;
+            color: var(--text);
+            margin: 8px 0 12px;
+            text-align: center;
+        }
+
+        .math-lab .formula-box .highlight {
+            color: var(--accent);
+        }
+
+        .math-lab .insight {
+            background: rgba(255, 217, 61, 0.06);
+            border: 1px solid rgba(255, 217, 61, 0.15);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.6;
+            margin: 8px 0;
+        }
+
+        .math-lab .insight strong {
+            color: var(--accent);
+        }
+
+        .math-lab .divider {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 16px 0;
+        }
+
+        .slider-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 10px;
+        }
+
+        .slider-row input[type="range"] {
+            flex: 1;
+            accent-color: var(--accent);
+            background: var(--bg);
+            height: 4px;
+            border-radius: 2px;
+        }
+
+        .slider-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+
+        .slider-value {
+            min-width: 32px;
+            text-align: right;
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--muted);
+            padding: 4px 0;
+        }
+
+        .toggle-row input[type="checkbox"] {
+            accent-color: var(--accent);
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .annotation-box {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.88);
+            border: 1px solid var(--accent);
+            border-radius: 10px;
+            padding: 10px 16px;
+            font-size: 12px;
+            color: var(--text);
+            pointer-events: none;
+            backdrop-filter: blur(8px);
+            display: none;
+            max-width: 240px;
+            line-height: 1.5;
+            z-index: 10;
+        }
+
+        .annotation-box .slope-value {
+            color: var(--accent);
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .annotation-box .label {
+            color: var(--muted);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .error-box {
+            background: rgba(248, 113, 113, 0.1);
+            border: 1px solid #f87171;
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: #f87171;
+            font-size: 13px;
+            margin: 8px 0;
+            display: none;
+        }
+
+        .legend-row {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .legend-row .item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-row .swatch {
+            width: 14px;
+            height: 3px;
+            border-radius: 2px;
+        }
+
+        @media (max-width: 600px) {
+            header {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 8px;
+            }
+            .header-right {
+                flex-wrap: wrap;
+            }
+            .readouts {
+                grid-template-columns: 1fr;
+            }
+            .card {
+                padding: 14px 16px;
+            }
+        }
+    </style>
 </head>
 <body>
 
-<header>
-  <h1>📐 Derivatives Live</h1>
-  <div>
-    <span id="status-dot"></span>
-    <span id="status-text">Connecting…</span>
-  </div>
-</header>
-
-<div class="layout">
-  <!-- ── Left column: charts ── -->
-  <div style="display:flex;flex-direction:column;gap:16px;">
-
-    <!-- Position chart -->
-    <div class="card chart-wrap">
-      <div class="chart-label">
-        <span class="dot" style="background:var(--x-color)"></span>
-        Position x(t) — distance to object (mm)
-      </div>
-      <canvas id="chart-x" height="130"></canvas>
-      <div id="annotation-box" id="annot-x"></div>
-    </div>
-
-    <!-- Velocity chart -->
-    <div class="card chart-wrap">
-      <div class="chart-label">
-        <span class="dot" style="background:var(--v-color)"></span>
-        Velocity v(t) = dx/dt — rate of change of position (mm/s)
-      </div>
-      <canvas id="chart-v" height="130"></canvas>
-    </div>
-
-    <!-- Acceleration chart -->
-    <div class="card chart-wrap">
-      <div class="chart-label">
-        <span class="dot" style="background:var(--a-color)"></span>
-        Acceleration a(t) = dv/dt = d²x/dt² — rate of change of velocity (mm/s²)
-      </div>
-      <canvas id="chart-a" height="130"></canvas>
-    </div>
-
-    <!-- Live readouts -->
-    <div class="readout-grid">
-      <div class="readout">
-        <div class="label">Position</div>
-        <div class="symbol" style="color:var(--x-color)">x</div>
-        <div class="value" id="val-x">—</div>
-        <div class="unit">mm</div>
-      </div>
-      <div class="readout">
-        <div class="label">Velocity</div>
-        <div class="symbol" style="color:var(--v-color)">v</div>
-        <div class="value" id="val-v">—</div>
-        <div class="unit">mm/s</div>
-      </div>
-      <div class="readout">
-        <div class="label">Acceleration</div>
-        <div class="symbol" style="color:var(--a-color)">a</div>
-        <div class="value" id="val-a">—</div>
-        <div class="unit">mm/s²</div>
-      </div>
-    </div>
-
-    <!-- Slope annotation panel -->
-    <div class="card" id="slope-card" style="font-size:13px;display:none;">
-      <strong style="color:var(--annot)">📌 What you're seeing right now</strong>
-      <div id="slope-text" style="margin-top:8px;color:var(--muted);line-height:1.7;"></div>
-    </div>
-
-  </div>
-
-  <!-- ── Right column: explainer + config ── -->
-  <div style="display:flex;flex-direction:column;gap:16px;">
-
-    <div class="card">
-      <div class="tab-bar">
-        <button class="tab active" onclick="showTab('concept')">Concept</button>
-        <button class="tab" onclick="showTab('formula')">Formula</button>
-        <button class="tab" onclick="showTab('config')">Settings</button>
-      </div>
-
-      <div id="tab-concept" class="explainer">
-        <h3>What is a derivative?</h3>
-        <p>A derivative measures how fast something is <em>changing</em>. If x(t) is where an object is, then:</p>
-        <div class="math">v = dx/dt = lim[Δt→0] Δx/Δt</div>
-        <p>…is how fast the position is changing — the <strong>velocity</strong>.</p>
-        <h3>And the second derivative?</h3>
-        <p>Apply the same idea to velocity:</p>
-        <div class="math">a = dv/dt = d²x/dt²</div>
-        <p>…is how fast the <em>velocity</em> is changing — the <strong>acceleration</strong>.</p>
-        <h3>What to notice in the charts</h3>
-        <p>→ When the <span style="color:var(--x-color)">position</span> curve peaks or dips, the <span style="color:var(--v-color)">velocity</span> crosses zero.</p>
-        <p>→ When velocity is at its peak, <span style="color:var(--a-color)">acceleration</span> is zero.</p>
-        <p>→ The steeper the position slope, the larger the velocity.</p>
-      </div>
-
-      <div id="tab-formula" class="explainer" style="display:none;">
-        <h3>How the ESP calculates this</h3>
-        <p>We use a <strong>central difference</strong> approximation — more accurate than a forward difference because the errors cancel out:</p>
-        <div class="math">v(t) ≈ [x(t+Δt) − x(t−Δt)]
-         ─────────────────────
-               2 · Δt</div>
-        <div class="math">a(t) ≈ [x(t+Δt) − 2x(t) + x(t−Δt)]
-         ─────────────────────────────────
-                     Δt²</div>
-        <h3>Error analysis</h3>
-        <p>The central difference has error <em>O(Δt²)</em>. With Δt = 50ms, the truncation error is ~2.5ms² order — small but visible as slight noise on the acceleration curve.</p>
-        <h3>Why is acceleration noisier?</h3>
-        <p>Each differentiation <em>amplifies</em> noise. Even a 1mm measurement error becomes ~400 mm/s² error after two differentiations at Δt=50ms. This is why real systems use filters (Kalman, low-pass) after differentiating.</p>
-      </div>
-
-      <div id="tab-config" style="display:none;">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
-          Adjust simulation parameters. Changes apply immediately.
+    <!-- ═══════════ HEADER ═══════════ -->
+    <header>
+        <div class="header-left">
+            <h1>
+                📐 <span class="math">d</span>/<span class="math">dt</span>
+                <span style="font-weight:300;color:var(--muted);font-size:20px;">·</span>
+                Laboratorio de Cálculo
+                <span class="header-sub">desde datos de sensores</span>
+            </h1>
+            <span class="mode-tag waiting" id="modeTag">⏳ conectando...</span>
         </div>
-        <div class="config-row">
-          <label>Window (points)</label>
-          <input type="range" id="cfg-window" min="20" max="150" value="80"
-                 oninput="updateWindow(this.value)">
-          <span id="cfg-window-val">80</span>
+        <div class="header-right">
+            <div class="status-badge">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Conectando a MQTT…</span>
+            </div>
+            <span>|</span>
+            <span>Muestras: <span class="data-count" id="sampleCount">0</span></span>
+            <span class="data-count" id="lastUpdate" style="font-size:12px;color:var(--muted);">—</span>
         </div>
-        <div class="config-row">
-          <label>Pause</label>
-          <input type="checkbox" id="cfg-pause" onchange="togglePause(this.checked)"
-                 style="accent-color:var(--x-color)">
+    </header>
+
+    <!-- ═══════════ MAIN LAYOUT ═══════════ -->
+    <div class="layout">
+
+        <!-- ─── LEFT COLUMN: Charts ─── -->
+        <div style="display:flex;flex-direction:column;gap:20px;">
+
+            <!-- Combined Chart: All three plots -->
+            <div class="card chart-wrap">
+                <div class="chart-header">
+                    <div>
+                        <div class="chart-title">
+                            <span style="display:flex;gap:6px;align-items:center;">
+                                <span class="color-dot" style="background:var(--position-color);"></span>
+                                <span class="color-dot" style="background:var(--velocity-color);"></span>
+                                <span class="color-dot" style="background:var(--acceleration-color);"></span>
+                            </span>
+                            Comparativa: <span class="formula">x(t)</span>, <span class="formula">v(t)</span>, <span class="formula">a(t)</span>
+                            <span style="font-weight:400;font-size:11px;color:var(--muted);">— todas juntas</span>
+                        </div>
+                        <div class="chart-subtitle">
+                            <span class="highlight">●</span> Pasa el mouse para ver la tangente en <span class="formula">x(t)</span>
+                        </div>
+                    </div>
+                </div>
+                <canvas id="chartCombined" height="160"></canvas>
+                <div class="legend-row">
+                    <span class="item"><span class="swatch" style="background:var(--position-color);"></span> Posición <span class="formula">x</span> (mm)</span>
+                    <span class="item"><span class="swatch" style="background:var(--velocity-color);"></span> Velocidad <span class="formula">v</span> (mm/s)</span>
+                    <span class="item"><span class="swatch" style="background:var(--acceleration-color);"></span> Aceleración <span class="formula">a</span> (mm/s²)</span>
+                </div>
+                <div class="annotation-box" id="tangentAnnotationCombined">
+                    <div class="label">Pendiente de la tangente</div>
+                    <div class="slope-value" id="tangentSlopeValueCombined">—</div>
+                    <div style="font-size:11px;color:var(--muted);">= velocidad instantánea</div>
+                </div>
+            </div>
+
+            <!-- Position Chart (individual) -->
+            <div class="card chart-wrap">
+                <div class="chart-header">
+                    <div>
+                        <div class="chart-title">
+                            <span class="color-dot" style="background:var(--position-color);"></span>
+                            Posición <span class="formula">x(t)</span>
+                            <span style="font-weight:400;font-size:11px;color:var(--muted);">— distancia al objeto</span>
+                        </div>
+                        <div class="chart-subtitle">
+                            <span class="highlight">●</span> Pasa el mouse para ver la pendiente de la tangente = velocidad instantánea
+                        </div>
+                    </div>
+                </div>
+                <canvas id="chartPosition" height="110"></canvas>
+                <div class="annotation-box" id="tangentAnnotation">
+                    <div class="label">Pendiente de la tangente</div>
+                    <div class="slope-value" id="tangentSlopeValue">—</div>
+                    <div style="font-size:11px;color:var(--muted);">= velocidad instantánea</div>
+                </div>
+            </div>
+
+            <!-- Velocity Chart -->
+            <div class="card chart-wrap">
+                <div class="chart-header">
+                    <div>
+                        <div class="chart-title">
+                            <span class="color-dot" style="background:var(--velocity-color);"></span>
+                            Velocidad <span class="formula">v(t) = dx/dt</span>
+                            <span style="font-weight:400;font-size:11px;color:var(--muted);">— 1ra derivada</span>
+                        </div>
+                        <div class="chart-subtitle">
+                            Rapidez con que cambia la posición · <span class="highlight">v</span> es la pendiente de <span class="highlight">x</span>
+                        </div>
+                    </div>
+                </div>
+                <canvas id="chartVelocity" height="90"></canvas>
+            </div>
+
+            <!-- Acceleration Chart -->
+            <div class="card chart-wrap">
+                <div class="chart-header">
+                    <div>
+                        <div class="chart-title">
+                            <span class="color-dot" style="background:var(--acceleration-color);"></span>
+                            Aceleración <span class="formula">a(t) = dv/dt = d²x/dt²</span>
+                            <span style="font-weight:400;font-size:11px;color:var(--muted);">— 2da derivada</span>
+                        </div>
+                        <div class="chart-subtitle">
+                            Rapidez con que cambia la velocidad · <span class="highlight">a</span> es la pendiente de <span class="highlight">v</span>
+                        </div>
+                    </div>
+                </div>
+                <canvas id="chartAcceleration" height="90"></canvas>
+            </div>
+
+            <!-- Live Readouts -->
+            <div class="readouts">
+                <div class="readout-item">
+                    <div class="label">Posición</div>
+                    <div class="symbol" style="color:var(--position-color);">x</div>
+                    <div class="value" id="readoutX" style="color:var(--position-color);">—</div>
+                    <div class="unit">mm</div>
+                </div>
+                <div class="readout-item">
+                    <div class="label">Velocidad</div>
+                    <div class="symbol" style="color:var(--velocity-color);">v</div>
+                    <div class="value" id="readoutV" style="color:var(--velocity-color);">—</div>
+                    <div class="unit">mm/s</div>
+                </div>
+                <div class="readout-item">
+                    <div class="label">Aceleración</div>
+                    <div class="symbol" style="color:var(--acceleration-color);">a</div>
+                    <div class="value" id="readoutA" style="color:var(--acceleration-color);">—</div>
+                    <div class="unit">mm/s²</div>
+                </div>
+            </div>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-top:16px;">
-          MQTT broker: <span id="broker-info" style="color:var(--text)"></span>
+
+        <!-- ─── RIGHT COLUMN: Math Lab ─── -->
+        <div style="display:flex;flex-direction:column;gap:20px;">
+
+            <div class="card math-lab">
+                <h3>🧪 ¿Qué es una derivada?</h3>
+                <p>
+                    La derivada mide <strong>qué tan rápido cambia algo</strong>.
+                    En este laboratorio, usamos un <strong>sensor de tiempo de vuelo</strong> para medir la posición,
+                    y luego <strong>calculamos</strong> la velocidad y la aceleración usando cálculo.
+                </p>
+
+                <div class="formula-box">
+                    <span style="color:var(--position-color);">x</span>(t) &nbsp;→&nbsp;
+                    <span style="color:var(--velocity-color);">v</span> = <span style="color:var(--accent);">d</span><span style="color:var(--position-color);">x</span>/<span style="color:var(--accent);">dt</span> &nbsp;→&nbsp;
+                    <span style="color:var(--acceleration-color);">a</span> = <span style="color:var(--accent);">d</span><span style="color:var(--velocity-color);">v</span>/<span style="color:var(--accent);">dt</span>
+                </div>
+
+                <p>
+                    El ESP8266 calcula las derivadas usando el método de <strong>diferencia central</strong>:
+                </p>
+
+                <div class="formula-box" style="font-size:13px;text-align:left;font-family:'Courier New',monospace;">
+                    <span style="color:var(--accent);">v</span> ≈ [x(t+Δt) − x(t−Δt)] / (2·Δt)
+                    <br>
+                    <span style="color:var(--accent);">a</span> ≈ [x(t+Δt) − 2x(t) + x(t−Δt)] / Δt²
+                </div>
+
+                <p style="font-size:12px;color:var(--muted);">
+                    <span style="color:var(--accent);">Δt</span> = intervalo de muestreo (≈50ms)
+                </p>
+
+                <hr class="divider">
+
+                <h3>📊 Cómo leer las gráficas</h3>
+                <div class="insight">
+                    <strong>● Posición</strong> — Dónde está el objeto. La <strong>pendiente</strong> de esta curva
+                    es la velocidad.
+                </div>
+                <div class="insight">
+                    <strong>● Velocidad</strong> — Qué tan rápido cambia la posición.
+                    Cuando <span style="color:var(--velocity-color);">v = 0</span>, el objeto está momentáneamente en reposo.
+                </div>
+                <div class="insight">
+                    <strong>● Aceleración</strong> — Qué tan rápido cambia la velocidad.
+                    Cuando <span style="color:var(--acceleration-color);">a = 0</span>, la velocidad está en su máximo o mínimo.
+                </div>
+
+                <hr class="divider">
+
+                <h3>⚙️ Controles</h3>
+
+                <div class="slider-row">
+                    <span>Ventana (puntos)</span>
+                    <input type="range" id="windowSlider" min="20" max="150" value="80">
+                    <span class="slider-value" id="windowValue">80</span>
+                </div>
+
+                <div class="toggle-row">
+                    <span>Pausar actualizaciones</span>
+                    <input type="checkbox" id="pauseToggle">
+                </div>
+
+                <div class="toggle-row">
+                    <span>Mostrar tangente al pasar el mouse</span>
+                    <input type="checkbox" id="tangentToggle" checked>
+                </div>
+
+                <div id="connectionError" class="error-box">
+                    ⚠️ <span id="errorMessage">Error de conexión</span>
+                </div>
+
+                <div style="font-size:11px;color:var(--muted);margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+                    Fuente de datos: <span style="color:var(--text);">MQTT</span> ·
+                    Tópico: <code style="color:var(--accent);">derivatives/motion</code>
+                    <br>
+                    <span style="font-size:10px;">ESP8266 + sensor TOF · cálculo en vivo</span>
+                </div>
+            </div>
+
+            <!-- Phase Portrait -->
+            <div class="card">
+                <div class="chart-title" style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">
+                    Retrato de Fase <span style="font-weight:400;text-transform:none;color:var(--muted);">— velocidad vs posición</span>
+                </div>
+                <canvas id="chartPhase" height="160"></canvas>
+                <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;">
+                    Cada punto muestra <span style="color:var(--position-color);">posición</span> vs
+                    <span style="color:var(--velocity-color);">velocidad</span> en el mismo instante.
+                    El lazo revela la <strong>relación</strong> entre ambas.
+                </div>
+            </div>
         </div>
-        <div style="font-size:12px;color:var(--muted);">
-          Topic: <code style="color:var(--annot)">derivatives/motion</code>
-        </div>
-      </div>
     </div>
 
-    <!-- Phase relationship card -->
-    <div class="card">
-      <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:10px;">
-        Phase relationships
-      </div>
-      <canvas id="chart-phase" height="180"></canvas>
-      <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5;">
-        For sinusoidal motion, v leads x by 90°, and a is opposite to x.
-        Watch the loops form — this is the <em>phase portrait</em>.
-      </div>
-    </div>
+    <script>
+        // ═══════════════════════════════════════════════════════════════
+        //  CONFIGURACIÓN
+        // ═══════════════════════════════════════════════════════════════
 
-    <!-- dt readout -->
-    <div class="card" style="font-size:12px;color:var(--muted);">
-      <div style="margin-bottom:6px;font-weight:600;color:var(--text);">Sampling info</div>
-      Δt (actual): <span id="val-dt" style="color:var(--text);">—</span> ms<br>
-      Samples received: <span id="val-count" style="color:var(--text);">0</span><br>
-      Last update: <span id="val-last" style="color:var(--text);">—</span>
-    </div>
+        const BROKER_URL =
+            'wss://d1602d6aec814d75ab189bac6e08abfc.s1.eu.hivemq.cloud:8884/mqtt';
+        const TOPIC = 'derivatives/motion';
+        const DEFAULT_WINDOW = 80;
 
-  </div>
-</div>
+        // ═══════════════════════════════════════════════════════════════
+        //  ESTADO
+        // ═══════════════════════════════════════════════════════════════
 
-<script>
-// ── Configuration ─────────────────────────────────────────────────────────────
-const BROKER_URL = 'wss://d1602d6aec814d75ab189bac6e08abfc.s1.eu.hivemq.cloud:8884/mqtt';  
-const TOPIC      = 'derivatives/motion';
-const MAX_POINTS = 80;
+        let paused = false;
+        let sampleCount = 0;
+        let windowSize = DEFAULT_WINDOW;
+        let showTangent = true;
+        let tangentIndex = -1;
+        let mqttClient = null;
 
-document.getElementById('broker-info').textContent = BROKER_URL;
+        const data = {
+            t: [],
+            x: [],
+            v: [],
+            a: []
+        };
 
-// ── State ─────────────────────────────────────────────────────────────────────
-let paused  = false;
-let count   = 0;
-let windowN = MAX_POINTS;
-const data  = { t: [], x: [], v: [], a: [] };
+        // ═══════════════════════════════════════════════════════════════
+        //  CHART SETUP
+        // ═══════════════════════════════════════════════════════════════
 
-// ── Chart setup helpers ────────────────────────────────────────────────────────
-const gridColor  = 'rgba(255,255,255,0.05)';
-const zeroColor  = 'rgba(255,255,255,0.12)';
-const annotColor = '#facc15';
+        const gridColor = 'rgba(255,255,255,0.04)';
+        const zeroColor = 'rgba(255,255,255,0.08)';
 
-function makeChart(id, color, yLabel, yMin, yMax) {
-  const ctx = document.getElementById(id).getContext('2d');
-  return new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        data: [], borderColor: color, borderWidth: 2,
-        pointRadius: 0, tension: 0.3, fill: false,
-      }]
-    },
-    options: {
-      animation: false,
-      responsive: true,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        annotation: {},
-        tooltip: {
-          callbacks: {
-            label: ctx => `${ctx.parsed.y.toFixed(1)} ${yLabel}`
-          }
+        // ── Custom plugin for tangent line ──
+        function createTangentPlugin(getData, annotationId, slopeId) {
+            return {
+                id: 'tangentLine',
+                afterDraw(chart) {
+                    if (!showTangent || tangentIndex < 0 || tangentIndex >= getData().x.length) return;
+
+                    const ctx = chart.ctx;
+                    const xScale = chart.scales.x;
+                    const yScale = chart.scales.y;
+
+                    if (!xScale || !yScale) return;
+
+                    const data = getData();
+
+                    // Get the point and its neighbors
+                    const points = 20;
+                    const start = Math.max(0, tangentIndex - Math.floor(points / 2));
+                    const end = Math.min(data.x.length, tangentIndex + Math.floor(points / 2) + 1);
+
+                    if (end - start < 3) return;
+
+                    // Linear regression for slope
+                    let sumX = 0,
+                        sumY = 0,
+                        sumXY = 0,
+                        sumX2 = 0;
+                    const n = end - start;
+
+                    for (let i = start; i < end; i++) {
+                        const t = i;
+                        const y = data.x[i];
+                        sumX += t;
+                        sumY += y;
+                        sumXY += t * y;
+                        sumX2 += t * t;
+                    }
+
+                    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+                    const intercept = (sumY - slope * sumX) / n;
+
+                    // Calculate tangent line endpoints
+                    const halfExtent = 60;
+                    const x1 = tangentIndex - halfExtent;
+                    const x2 = tangentIndex + halfExtent;
+                    const y1 = slope * x1 + intercept;
+                    const y2 = slope * x2 + intercept;
+
+                    // Convert to pixel coords
+                    const p1 = { x: xScale.getPixelForValue(x1), y: yScale.getPixelForValue(y1) };
+                    const p2 = { x: xScale.getPixelForValue(x2), y: yScale.getPixelForValue(y2) };
+                    const centerX = xScale.getPixelForValue(tangentIndex);
+                    const centerY = yScale.getPixelForValue(data.x[tangentIndex]);
+
+                    // Clip to chart area
+                    const chartArea = chart.chartArea;
+                    const clipX1 = Math.max(chartArea.left, p1.x);
+                    const clipX2 = Math.min(chartArea.right, p2.x);
+
+                    // Draw tangent line
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.strokeStyle = '#ffd93d';
+                    ctx.lineWidth = 2.5;
+                    ctx.shadowColor = 'rgba(255,217,61,0.3)';
+                    ctx.shadowBlur = 8;
+
+                    const t1 = (clipX1 - p1.x) / (p2.x - p1.x);
+                    const t2 = (clipX2 - p1.x) / (p2.x - p1.x);
+                    const drawY1 = p1.y + t1 * (p2.y - p1.y);
+                    const drawY2 = p1.y + t2 * (p2.y - p1.y);
+
+                    ctx.moveTo(clipX1, drawY1);
+                    ctx.lineTo(clipX2, drawY2);
+                    ctx.stroke();
+
+                    // Draw point at center
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, 6, 0, Math.PI * 2);
+                    ctx.fillStyle = '#ffd93d';
+                    ctx.shadowBlur = 12;
+                    ctx.shadowColor = 'rgba(255,217,61,0.5)';
+                    ctx.fill();
+
+                    // Draw slope label
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#ffd93d';
+                    ctx.font = 'bold 11px Inter, sans-serif';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'bottom';
+
+                    const label = `pendiente = ${slope.toFixed(1)} mm/s`;
+                    const labelX = Math.min(clipX2 - 10, centerX + 8);
+                    const labelY = Math.min(chartArea.bottom - 8, centerY - 10);
+
+                    // Background
+                    const metrics = ctx.measureText(label);
+                    const pad = 6;
+                    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+                    if (ctx.roundRect) {
+                        ctx.roundRect(labelX - pad, labelY - 18 - pad, metrics.width + pad * 2, 18 + pad * 2, 4);
+                    } else {
+                        ctx.rect(labelX - pad, labelY - 18 - pad, metrics.width + pad * 2, 18 + pad * 2);
+                    }
+                    ctx.fill();
+
+                    ctx.fillStyle = '#ffd93d';
+                    ctx.fillText(label, labelX, labelY);
+
+                    ctx.restore();
+
+                    // Update annotation box
+                    const box = document.getElementById(annotationId);
+                    document.getElementById(slopeId).textContent = `${slope.toFixed(2)} mm/s`;
+                    box.style.display = 'block';
+                }
+            };
         }
-      },
-      scales: {
-        x: {
-          ticks: { color: '#7c7f94', font: { size: 10 }, maxTicksLimit: 8 },
-          grid:  { color: gridColor },
-        },
-        y: {
-          ticks: { color: '#7c7f94', font: { size: 10 } },
-          grid:  { color: gridColor },
-          title: { display: false },
-          ...(yMin != null ? { min: yMin, max: yMax } : {}),
+
+        // ── Base chart config ──
+        function getBaseChartConfig(datasets, yMin, yMax) {
+            return {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: datasets
+                },
+                options: {
+                    animation: false,
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.dataset.label || '';
+                                    return `${label}: ${context.parsed.y.toFixed(1)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: '#6a7090',
+                                font: { size: 9 },
+                                maxTicksLimit: 8
+                            },
+                            grid: { color: gridColor },
+                            border: { color: gridColor }
+                        },
+                        y: {
+                            ticks: {
+                                color: '#6a7090',
+                                font: { size: 9 }
+                            },
+                            grid: { color: gridColor },
+                            border: { color: gridColor },
+                            ...(yMin != null ? { min: yMin, max: yMax } : {})
+                        }
+                    }
+                },
+                plugins: [{
+                    id: 'zeroLine',
+                    afterDraw(chart) {
+                        const yScale = chart.scales.y;
+                        if (!yScale) return;
+                        const zeroPixel = yScale.getPixelForValue(0);
+                        if (zeroPixel >= 0 && zeroPixel <= chart.chartArea.bottom) {
+                            const ctx = chart.ctx;
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.strokeStyle = zeroColor;
+                            ctx.lineWidth = 1;
+                            ctx.setLineDash([4, 4]);
+                            ctx.moveTo(chart.chartArea.left, zeroPixel);
+                            ctx.lineTo(chart.chartArea.right, zeroPixel);
+                            ctx.stroke();
+                            ctx.restore();
+                        }
+                    }
+                }]
+            };
         }
-      }
-    }
-  });
-}
 
-const chartX = makeChart('chart-x', '#60a5fa', 'mm');
-const chartV = makeChart('chart-v', '#34d399', 'mm/s');
-const chartA = makeChart('chart-a', '#f97316', 'mm/s²');
+        // ── Create charts ──
 
-// Phase portrait (x vs v scatter)
-const phaseCtx = document.getElementById('chart-phase').getContext('2d');
-const chartPhase = new Chart(phaseCtx, {
-  type: 'scatter',
-  data: {
-    datasets: [{
-      data: [], borderColor: '#a78bfa',
-      backgroundColor: 'rgba(167,139,250,0.6)',
-      pointRadius: 2, showLine: true,
-      tension: 0.3, borderWidth: 1.5,
-      fill: false,
-    }]
-  },
-  options: {
-    animation: false, responsive: true,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: {
-        title: { display: true, text: 'x (mm)', color: '#60a5fa', font: { size: 11 } },
-        ticks: { color: '#7c7f94', font: { size: 10 } },
-        grid:  { color: gridColor },
-      },
-      y: {
-        title: { display: true, text: 'v (mm/s)', color: '#34d399', font: { size: 11 } },
-        ticks: { color: '#7c7f94', font: { size: 10 } },
-        grid:  { color: gridColor },
-      }
-    }
-  }
-});
+        // Helper to get data for plugins
+        const getData = () => data;
 
-// ── Update functions ───────────────────────────────────────────────────────────
-function pushData(msg) {
-  if (paused) return;
+        // Combined chart
+        const combinedConfig = getBaseChartConfig([{
+            label: 'Posición x',
+            data: [],
+            borderColor: '#6bcbff',
+            borderWidth: 2.5,
+            pointRadius: 0,
+            tension: 0.3,
+            fill: false,
+        }, {
+            label: 'Velocidad v',
+            data: [],
+            borderColor: '#ff6b6b',
+            borderWidth: 2.5,
+            pointRadius: 0,
+            tension: 0.3,
+            fill: false,
+        }, {
+            label: 'Aceleración a',
+            data: [],
+            borderColor: '#51cf66',
+            borderWidth: 2.5,
+            pointRadius: 0,
+            tension: 0.3,
+            fill: false,
+        }], null, null);
+        combinedConfig.plugins.push(createTangentPlugin(getData, 'tangentAnnotationCombined', 'tangentSlopeValueCombined'));
+        const chartCombined = new Chart(
+            document.getElementById('chartCombined').getContext('2d'),
+            combinedConfig
+        );
 
-  const ts = (msg.t / 1000).toFixed(2) + 's';
-  data.t.push(ts);
-  data.x.push(msg.x);
-  data.v.push(msg.v);
-  data.a.push(msg.a);
+        // Position chart
+        const positionConfig = getBaseChartConfig([{
+            data: [],
+            borderColor: '#6bcbff',
+            borderWidth: 2.5,
+            pointRadius: 0,
+            tension: 0.3,
+            fill: false,
+        }], null, null);
+        positionConfig.plugins.push(createTangentPlugin(getData, 'tangentAnnotation', 'tangentSlopeValue'));
+        const chartPosition = new Chart(
+            document.getElementById('chartPosition').getContext('2d'),
+            positionConfig
+        );
 
-  const W = windowN;
-  if (data.t.length > W) {
-    data.t.shift(); data.x.shift(); data.v.shift(); data.a.shift();
-  }
+        // Velocity chart
+        const velocityConfig = getBaseChartConfig([{
+            data: [],
+            borderColor: '#ff6b6b',
+            borderWidth: 2.5,
+            pointRadius: 0,
+            tension: 0.3,
+            fill: false,
+        }], null, null);
+        const chartVelocity = new Chart(
+            document.getElementById('chartVelocity').getContext('2d'),
+            velocityConfig
+        );
 
-  // Update line charts
-  [chartX, chartV, chartA].forEach((ch, i) => {
-    ch.data.labels   = data.t;
-    ch.data.datasets[0].data = [data.x, data.v, data.a][i];
-    ch.update('none');
-  });
+        // Acceleration chart
+        const accelerationConfig = getBaseChartConfig([{
+            data: [],
+            borderColor: '#51cf66',
+            borderWidth: 2.5,
+            pointRadius: 0,
+            tension: 0.3,
+            fill: false,
+        }], null, null);
+        const chartAcceleration = new Chart(
+            document.getElementById('chartAcceleration').getContext('2d'),
+            accelerationConfig
+        );
 
-  // Phase portrait — last 60 points
-  const N = Math.min(data.x.length, 60);
-  chartPhase.data.datasets[0].data = data.x.slice(-N).map((xi, i) => ({
-    x: xi, y: data.v[data.v.length - N + i]
-  }));
-  chartPhase.update('none');
+        // ── Phase portrait ──
+        const phaseCtx = document.getElementById('chartPhase').getContext('2d');
+        const chartPhase = new Chart(phaseCtx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    data: [],
+                    borderColor: '#a78bfa',
+                    backgroundColor: 'rgba(167,139,250,0.4)',
+                    pointRadius: 1.5,
+                    showLine: true,
+                    tension: 0.3,
+                    borderWidth: 1.5,
+                    fill: false,
+                }]
+            },
+            options: {
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => `x: ${ctx.parsed.x.toFixed(1)} mm, v: ${ctx.parsed.y.toFixed(1)} mm/s`
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Posición (mm)',
+                            color: '#6bcbff',
+                            font: { size: 10 }
+                        },
+                        ticks: { color: '#6a7090', font: { size: 9 } },
+                        grid: { color: gridColor },
+                        border: { color: gridColor }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Velocidad (mm/s)',
+                            color: '#ff6b6b',
+                            font: { size: 10 }
+                        },
+                        ticks: { color: '#6a7090', font: { size: 9 } },
+                        grid: { color: gridColor },
+                        border: { color: gridColor }
+                    }
+                }
+            }
+        });
 
-  // Readouts
-  document.getElementById('val-x').textContent = msg.x.toFixed(1);
-  document.getElementById('val-v').textContent = msg.v.toFixed(1);
-  document.getElementById('val-a').textContent = msg.a.toFixed(1);
-  document.getElementById('val-dt').textContent = msg.dt.toFixed(1);
-  document.getElementById('val-count').textContent = ++count;
-  document.getElementById('val-last').textContent = new Date().toLocaleTimeString();
+        // ═══════════════════════════════════════════════════════════════
+        //  TANGENT INTERACTION (shared across charts)
+        // ═══════════════════════════════════════════════════════════════
 
-  // ── Pedagogical annotation ────────────────────────────────────────────────
-  updateAnnotation(msg);
-}
+        function updateTangent(index) {
+            tangentIndex = index;
+            if (index < 0 || index >= data.x.length || !showTangent) {
+                document.getElementById('tangentAnnotation').style.display = 'none';
+                document.getElementById('tangentAnnotationCombined').style.display = 'none';
+            }
+            chartPosition.update('none');
+            chartCombined.update('none');
+        }
 
-function updateAnnotation(msg) {
-  const slopeCard = document.getElementById('slope-card');
-  const slopeText = document.getElementById('slope-text');
+        function handleChartHover(e) {
+            if (!showTangent || data.x.length === 0) {
+                updateTangent(-1);
+                return;
+            }
 
-  const absV  = Math.abs(msg.v);
-  const absA  = Math.abs(msg.a);
-  const lines = [];
+            const rect = e.target.getBoundingClientRect();
+            const x = (e.clientX || e.touches?.[0]?.clientX || 0) - rect.left;
 
-  if (absV < 15) {
-    lines.push(`<strong style="color:var(--annot)">Velocity ≈ 0</strong> — the object is momentarily stationary. On the position chart, this is where the curve reaches a <em>local maximum or minimum</em> (flat tangent).`);
-  } else if (absV > 200) {
-    lines.push(`<strong style="color:var(--v-color)">High velocity (${msg.v.toFixed(0)} mm/s)</strong> — the position curve is steep here. The derivative (slope of the tangent line) is large.`);
-  }
+            const xScale = chartPosition.scales.x;
+            if (!xScale) return;
 
-  if (absA < 20) {
-    lines.push(`<strong style="color:var(--annot)">Acceleration ≈ 0</strong> — velocity is at a peak or trough. The velocity curve has a flat tangent here.`);
-  } else if (absA > 300) {
-    const dir = msg.a > 0 ? 'speeding up (away)' : 'slowing down or reversing';
-    lines.push(`<strong style="color:var(--a-color)">Large acceleration (${msg.a.toFixed(0)} mm/s²)</strong> — the object is ${dir}. The velocity is changing quickly.`);
-  }
+            const xMin = xScale.getPixelForValue(0);
+            const xMax = xScale.getPixelForValue(data.x.length - 1);
 
-  if (msg.v > 0 && msg.a < -50)  lines.push(`Object moving away but <em>decelerating</em> — velocity and acceleration have <em>opposite signs</em>.`);
-  if (msg.v < 0 && msg.a > 50)   lines.push(`Object approaching but <em>decelerating</em> — velocity and acceleration have <em>opposite signs</em>.`);
-  if (msg.v > 0 && msg.a > 50)   lines.push(`Object moving away and <em>accelerating</em> — velocity and acceleration have the <em>same sign</em>.`);
-  if (msg.v < 0 && msg.a < -50)  lines.push(`Object approaching and <em>accelerating</em> — velocity and acceleration have the <em>same sign</em>.`);
+            if (x < xMin || x > xMax) {
+                updateTangent(-1);
+                return;
+            }
 
-  if (lines.length > 0) {
-    slopeText.innerHTML = lines.join('<br><br>');
-    slopeCard.style.display = 'block';
-  } else {
-    slopeCard.style.display = 'none';
-  }
-}
+            const index = Math.round(xScale.getValueForPixel(x + rect.left));
+            if (index >= 0 && index < data.x.length) {
+                updateTangent(index);
+            } else {
+                updateTangent(-1);
+            }
+        }
 
-// ── MQTT connection ───────────────────────────────────────────────────────────
-const dot  = document.getElementById('status-dot');
-const statusText = document.getElementById('status-text');
+        // Attach hover events to both position and combined charts
+        const positionCanvas = document.getElementById('chartPosition');
+        const combinedCanvas = document.getElementById('chartCombined');
 
-function setStatus(ok, text) {
-  dot.className = ok ? 'ok' : '';
-  statusText.textContent = text;
-}
+        positionCanvas.addEventListener('mousemove', handleChartHover);
+        positionCanvas.addEventListener('touchmove', handleChartHover);
+        positionCanvas.addEventListener('mouseleave', () => updateTangent(-1));
 
-const client = mqtt.connect(BROKER_URL, {
-  clientId: 'web-' + Math.random().toString(36).slice(2, 8),
-  username: 'tofcinematikz',
-  password: 't0fM4t1kz2026',
-  clean: true,
-  reconnectPeriod: 3000,
-});
+        combinedCanvas.addEventListener('mousemove', handleChartHover);
+        combinedCanvas.addEventListener('touchmove', handleChartHover);
+        combinedCanvas.addEventListener('mouseleave', () => updateTangent(-1));
 
-client.on('connect', () => {
-  setStatus(true, 'Connected — waiting for data…');
-  client.subscribe(TOPIC, err => {
-    if (err) setStatus(false, 'Subscribe failed');
-  });
-});
+        // ═══════════════════════════════════════════════════════════════
+        //  DATA UPDATE
+        // ═══════════════════════════════════════════════════════════════
 
-client.on('message', (topic, payload) => {
-  try {
-    const msg = JSON.parse(payload.toString());
-    pushData(msg);
-    setStatus(true, 'Live ✓');
-  } catch(e) {
-    console.warn('Bad payload', e);
-  }
-});
+        function pushData(msg) {
+            if (paused) return;
 
-client.on('error',      e  => setStatus(false, 'Error: ' + e.message));
-client.on('close',      () => setStatus(false, 'Disconnected — retrying…'));
-client.on('reconnect',  () => setStatus(false, 'Reconnecting…'));
+            const ts = (msg.t / 1000).toFixed(2) + 's';
+            data.t.push(ts);
+            data.x.push(msg.x);
+            data.v.push(msg.v);
+            data.a.push(msg.a);
 
-// ── UI controls ───────────────────────────────────────────────────────────────
-function showTab(name) {
-  ['concept','formula','config'].forEach(t => {
-    document.getElementById('tab-'+t).style.display = t === name ? 'block' : 'none';
-  });
-  document.querySelectorAll('.tab').forEach((el, i) => {
-    el.classList.toggle('active', ['concept','formula','config'][i] === name);
-  });
-}
+            const W = windowSize;
+            if (data.t.length > W) {
+                data.t.shift();
+                data.x.shift();
+                data.v.shift();
+                data.a.shift();
+            }
 
-function updateWindow(v) {
-  windowN = parseInt(v);
-  document.getElementById('cfg-window-val').textContent = v;
-}
+            // Update all charts
+            const charts = [chartPosition, chartVelocity, chartAcceleration, chartCombined];
+            const datasets_list = [
+                [data.x],
+                [data.v],
+                [data.a],
+                [data.x, data.v, data.a]
+            ];
 
-function togglePause(v) { paused = v; }
-</script>
+            charts.forEach((ch, i) => {
+                ch.data.labels = data.t;
+                if (i === 3) {
+                    // Combined chart has 3 datasets
+                    ch.data.datasets[0].data = data.x;
+                    ch.data.datasets[1].data = data.v;
+                    ch.data.datasets[2].data = data.a;
+                } else {
+                    ch.data.datasets[0].data = datasets_list[i][0];
+                }
+                ch.update('none');
+            });
+
+            // Update phase portrait
+            const N = Math.min(data.x.length, 60);
+            chartPhase.data.datasets[0].data = data.x.slice(-N).map((xi, i) => ({
+                x: xi,
+                y: data.v[data.v.length - N + i]
+            }));
+            chartPhase.update('none');
+
+            // Update readouts
+            document.getElementById('readoutX').textContent = msg.x.toFixed(1);
+            document.getElementById('readoutV').textContent = msg.v.toFixed(1);
+            document.getElementById('readoutA').textContent = msg.a.toFixed(1);
+
+            // Update sample count
+            sampleCount++;
+            document.getElementById('sampleCount').textContent = sampleCount;
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+
+            // Update status
+            const dot = document.getElementById('statusDot');
+            dot.className = 'status-dot connected';
+            document.getElementById('statusText').textContent = 'En vivo ✓';
+            document.getElementById('modeTag').textContent = '📡 EN VIVO';
+            document.getElementById('modeTag').className = 'mode-tag live';
+
+            // Hide error if shown
+            document.getElementById('connectionError').style.display = 'none';
+
+            // Update tangent if it was showing
+            if (tangentIndex >= 0 && tangentIndex < data.x.length) {
+                updateTangent(tangentIndex);
+            }
+        }
+
+        function showError(message) {
+            const errorBox = document.getElementById('connectionError');
+            document.getElementById('errorMessage').textContent = message;
+            errorBox.style.display = 'block';
+            const dot = document.getElementById('statusDot');
+            dot.className = 'status-dot';
+            document.getElementById('statusText').textContent = 'Error';
+            document.getElementById('modeTag').textContent = '❌ ERROR';
+            document.getElementById('modeTag').className = 'mode-tag error';
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  MQTT CONNECTION
+        // ═══════════════════════════════════════════════════════════════
+
+        function connectMQTT() {
+            const dot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+
+            dot.className = 'status-dot';
+            statusText.textContent = 'Conectando a MQTT…';
+            document.getElementById('modeTag').textContent = '⏳ conectando...';
+            document.getElementById('modeTag').className = 'mode-tag waiting';
+
+            console.log('🔗 Conectando a MQTT broker:', BROKER_URL);
+
+            mqttClient = mqtt.connect(BROKER_URL, {
+                clientId: 'web-' + Math.random().toString(36).slice(2, 8),
+                username: 'tofcinematikz',
+                password: 't0fM4t1kz2026',
+                clean: true,
+                reconnectPeriod: 3000,
+            });
+
+            mqttClient.on('connect', () => {
+                console.log('✅ MQTT Conectado');
+                dot.className = 'status-dot';
+                statusText.textContent = 'Suscribiendo…';
+                mqttClient.subscribe(TOPIC, (err) => {
+                    if (err) {
+                        console.error('❌ Error al suscribir:', err);
+                        showError('Error al suscribir: ' + err.message);
+                    } else {
+                        console.log('📡 Suscrito a', TOPIC);
+                        dot.className = 'status-dot recording';
+                        statusText.textContent = 'Esperando datos…';
+                        document.getElementById('modeTag').textContent = '📡 EN VIVO';
+                        document.getElementById('modeTag').className = 'mode-tag live';
+                    }
+                });
+            });
+
+            mqttClient.on('message', (topic, payload) => {
+                try {
+                    const msg = JSON.parse(payload.toString());
+                    if (msg.x !== undefined && msg.v !== undefined && msg.a !== undefined && msg.t !== undefined) {
+                        pushData(msg);
+                    } else {
+                        console.warn('⚠️ Formato de mensaje inválido:', msg);
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Error al parsear payload:', e);
+                }
+            });
+
+            mqttClient.on('error', (err) => {
+                console.error('❌ Error MQTT:', err);
+                showError('Error de conexión: ' + err.message);
+            });
+
+            mqttClient.on('close', () => {
+                console.log('🔌 MQTT desconectado');
+                const errorBox = document.getElementById('connectionError');
+                if (errorBox.style.display !== 'block') {
+                    dot.className = 'status-dot';
+                    statusText.textContent = 'Desconectado — reconectando…';
+                    document.getElementById('modeTag').textContent = '⏳ reconectando...';
+                    document.getElementById('modeTag').className = 'mode-tag waiting';
+                }
+            });
+
+            mqttClient.on('reconnect', () => {
+                console.log('🔄 Reconectando MQTT…');
+                dot.className = 'status-dot';
+                statusText.textContent = 'Reconectando…';
+                document.getElementById('modeTag').textContent = '⏳ reconectando...';
+                document.getElementById('modeTag').className = 'mode-tag waiting';
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  UI CONTROLS
+        // ═══════════════════════════════════════════════════════════════
+
+        // Window slider
+        const windowSlider = document.getElementById('windowSlider');
+        windowSlider.addEventListener('input', function() {
+            windowSize = parseInt(this.value);
+            document.getElementById('windowValue').textContent = windowSize;
+        });
+
+        // Pause toggle
+        document.getElementById('pauseToggle').addEventListener('change', function() {
+            paused = this.checked;
+            const dot = document.getElementById('statusDot');
+            if (paused) {
+                dot.className = 'status-dot';
+                document.getElementById('statusText').textContent = '⏸ Pausado';
+            } else {
+                dot.className = 'status-dot recording';
+                document.getElementById('statusText').textContent = 'En vivo ✓';
+            }
+        });
+
+        // Tangent toggle
+        document.getElementById('tangentToggle').addEventListener('change', function() {
+            showTangent = this.checked;
+            if (!showTangent) {
+                tangentIndex = -1;
+                document.getElementById('tangentAnnotation').style.display = 'none';
+                document.getElementById('tangentAnnotationCombined').style.display = 'none';
+            } else if (tangentIndex >= 0 && tangentIndex < data.x.length) {
+                updateTangent(tangentIndex);
+            }
+            chartPosition.update('none');
+            chartCombined.update('none');
+        });
+
+        // ── Start ──
+        document.getElementById('tangentToggle').checked = true;
+        connectMQTT();
+
+        console.log('📐 Laboratorio de Cálculo iniciado — esperando datos MQTT del ESP8266');
+        console.log('🔗 Broker:', BROKER_URL);
+        console.log('📡 Tópico:', TOPIC);
+        console.log('💡 Verifica que tu ESP esté publicando en este tópico con JSON: {"t":123, "x":100, "v":10, "a":0}');
+    </script>
 </body>
 </html>
