@@ -106,3 +106,5 @@ Cambiar del sensor simulado al sensor real requiere modificar una sola línea en
 - [ArduinoJson](https://arduinojson.org/)
 - [Chart.js](https://www.chartjs.org/)
 - [HiveMQ](https://www.hivemq.com/)
+  
+- [EFN]
