@@ -107,4 +107,4 @@ Cambiar del sensor simulado al sensor real requiere modificar una sola línea en
 - [Chart.js](https://www.chartjs.org/)
 - [HiveMQ](https://www.hivemq.com/)
   
-- [EFN]
+EFN
