@@ -14,9 +14,9 @@ Un ESP8266 mide la distancia 20 veces por segundo. A partir de ese único flujo 
 
 | Señal | Matemática | Significado |
 |---|---|---|
-| **Posicion** x(t) | raw sensor | posición del objeto |
-| **Velocidad** v(t) | dx/dt | qué tan rápido se mueve |
-| **Aceleracion** a(t) | d²x/dt² | qué tan rápido cambia esa velocidad |
+| **Position** x(t) | raw sensor | posición del objeto |
+| **Velocity** v(t) | dx/dt | qué tan rápido se mueve |
+| **Acceleration** a(t) | d²x/dt² | qué tan rápido cambia esa velocidad |
 
 Las tres señales se grafican en vivo en el navegador. La interfaz explica lo que ocurre mientras sucede: cuándo la velocidad llega a cero, cuándo aceleración y velocidad apuntan en direcciones opuestas y por qué la curva de aceleración presenta más ruido que las demás.
 
