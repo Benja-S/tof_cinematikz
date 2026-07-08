@@ -488,6 +488,7 @@
 
         .no-data-overlay.hidden {
             opacity: 0;
+            pointer-events: none;
         }
 
         .no-data-overlay .content {
@@ -511,6 +512,23 @@
             to {
                 transform: rotate(360deg);
             }
+        }
+
+        .btn-reset {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--muted);
+            padding: 4px 12px;
+            border-radius: 100px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 8px;
+        }
+
+        .btn-reset:hover {
+            border-color: var(--text);
+            color: var(--text);
         }
 
         @media (max-width: 600px) {
@@ -540,7 +558,7 @@
                 📐 <span class="math">d</span>/<span class="math">dt</span>
                 <span style="font-weight:300;color:var(--muted);font-size:20px;">·</span>
                 Laboratorio de Cálculo
-                <span class="header-sub"> derivadas desde datos de sensores</span>
+                <span class="header-sub">desde datos de sensores</span>
             </h1>
             <span class="mode-tag waiting" id="modeTag">⏳ conectando...</span>
         </div>
@@ -763,6 +781,8 @@
                     <input type="checkbox" id="tangentToggle" checked>
                 </div>
 
+                <button class="btn-reset" onclick="resetState()">🔄 Reiniciar / limpiar datos</button>
+
                 <div id="connectionError" class="error-box">
                     ⚠️ <span id="errorMessage">Error de conexión</span>
                 </div>
@@ -784,7 +804,7 @@
                 <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;">
                     Cada punto muestra <span style="color:var(--position-color);">posición</span> vs
                     <span style="color:var(--velocity-color);">velocidad</span> en el mismo instante.
-                    El lazo revela la <strong>relación</strong> entre ambas. <strong><em>EFN</em></strong> 
+                    El lazo revela la <strong>relación</strong> entre ambas.
                 </div>
             </div>
         </div>
@@ -799,6 +819,7 @@
             'wss://d1602d6aec814d75ab189bac6e08abfc.s1.eu.hivemq.cloud:8884/mqtt';
         const TOPIC = 'derivatives/motion';
         const DEFAULT_WINDOW = 80;
+        const DATA_TIMEOUT_MS = 3000; // Ignore messages older than 3 seconds
 
         // ═══════════════════════════════════════════════════════════════
         //  ESTADO
@@ -811,6 +832,7 @@
         let tangentIndex = -1;
         let mqttClient = null;
         let hasReceivedData = false;
+        let lastMessageTime = 0;
 
         const data = {
             t: [],
@@ -818,6 +840,69 @@
             v: [],
             a: []
         };
+
+        // ═══════════════════════════════════════════════════════════════
+        //  RESET FUNCTION
+        // ═══════════════════════════════════════════════════════════════
+
+        function resetState() {
+            // Clear data
+            data.t = [];
+            data.x = [];
+            data.v = [];
+            data.a = [];
+            sampleCount = 0;
+            hasReceivedData = false;
+            lastMessageTime = 0;
+            tangentIndex = -1;
+
+            // Reset readouts
+            document.getElementById('readoutX').textContent = '—';
+            document.getElementById('readoutX').className = 'value waiting';
+            document.getElementById('readoutV').textContent = '—';
+            document.getElementById('readoutV').className = 'value waiting';
+            document.getElementById('readoutA').textContent = '—';
+            document.getElementById('readoutA').className = 'value waiting';
+            document.getElementById('sampleCount').textContent = '0';
+            document.getElementById('sampleCount').className = 'data-count waiting-data';
+            document.getElementById('lastUpdate').textContent = '—';
+
+            // Reset status
+            const dot = document.getElementById('statusDot');
+            dot.className = 'status-dot waiting';
+            document.getElementById('statusText').textContent = 'Esperando datos…';
+            document.getElementById('modeTag').textContent = '⏳ esperando datos';
+            document.getElementById('modeTag').className = 'mode-tag waiting';
+
+            // Show overlays
+            showOverlays();
+
+            // Clear charts
+            const charts = [chartPosition, chartVelocity, chartAcceleration, chartCombined];
+            charts.forEach((ch, i) => {
+                ch.data.labels = [];
+                if (i === 3) {
+                    ch.data.datasets[0].data = [];
+                    ch.data.datasets[1].data = [];
+                    ch.data.datasets[2].data = [];
+                } else {
+                    ch.data.datasets[0].data = [];
+                }
+                ch.update('none');
+            });
+
+            chartPhase.data.datasets[0].data = [];
+            chartPhase.update('none');
+
+            // Hide annotations
+            document.getElementById('tangentAnnotation').style.display = 'none';
+            document.getElementById('tangentAnnotationCombined').style.display = 'none';
+
+            // Hide error
+            document.getElementById('connectionError').style.display = 'none';
+
+            console.log('🔄 Estado reiniciado — esperando nuevos datos');
+        }
 
         // ═══════════════════════════════════════════════════════════════
         //  CHART SETUP
@@ -1228,6 +1313,16 @@
         function pushData(msg) {
             if (paused) return;
 
+            // Check if message is fresh (ignore stale/retained messages)
+            const now = Date.now();
+            const msgTime = msg.t || 0;
+
+            // If the message has a timestamp and it's older than our timeout, ignore it
+            if (msgTime > 0 && (now - msgTime) > DATA_TIMEOUT_MS) {
+                console.log(`⏳ Ignorando mensaje antiguo (${(now - msgTime)}ms old)`);
+                return;
+            }
+
             // Mark that we've received data
             if (!hasReceivedData) {
                 hasReceivedData = true;
@@ -1237,9 +1332,12 @@
                 document.getElementById('statusDot').className = 'status-dot recording';
                 document.getElementById('statusText').textContent = 'Recibiendo datos ✓';
                 document.getElementById('sampleCount').className = 'data-count';
+                console.log('📊 Primer dato recibido — ¡en vivo!');
             }
 
-            const ts = (msg.t / 1000).toFixed(2) + 's';
+            lastMessageTime = now;
+
+            const ts = (msgTime / 1000).toFixed(2) + 's';
             data.t.push(ts);
             data.x.push(msg.x);
             data.v.push(msg.v);
@@ -1295,11 +1393,6 @@
             sampleCount++;
             document.getElementById('sampleCount').textContent = sampleCount;
             document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
-
-            // Update status
-            const dot = document.getElementById('statusDot');
-            dot.className = 'status-dot recording';
-            document.getElementById('statusText').textContent = 'Recibiendo datos ✓';
 
             // Hide error if shown
             document.getElementById('connectionError').style.display = 'none';
@@ -1358,7 +1451,6 @@
                         showError('Error al suscribir: ' + err.message);
                     } else {
                         console.log('📡 Suscrito a', TOPIC);
-                        // Don't change to "live" yet - wait for actual data
                         statusText.textContent = 'Suscrito, esperando datos…';
                     }
                 });
@@ -1367,7 +1459,11 @@
             mqttClient.on('message', (topic, payload) => {
                 try {
                     const msg = JSON.parse(payload.toString());
-                    if (msg.x !== undefined && msg.v !== undefined && msg.a !== undefined && msg.t !== undefined) {
+                    if (msg.x !== undefined && msg.v !== undefined && msg.a !== undefined) {
+                        // If no timestamp in message, use current time
+                        if (msg.t === undefined) {
+                            msg.t = Date.now();
+                        }
                         pushData(msg);
                     } else {
                         console.warn('⚠️ Formato de mensaje inválido:', msg);
@@ -1453,6 +1549,7 @@
         console.log('🔗 Broker:', BROKER_URL);
         console.log('📡 Tópico:', TOPIC);
         console.log('💡 Verifica que tu ESP esté publicando en este tópico con JSON: {"t":123, "x":100, "v":10, "a":0}');
+        console.log('🔁 Los mensajes con timestamp > 3 segundos de antigüedad serán ignorados');
     </script>
 </body>
 </html>
